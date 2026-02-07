@@ -9,7 +9,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.memory import ConversationBufferWindowMemory
 from langchain_core.prompts   import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
-
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_classic.agents import Tool, AgentExecutor, create_react_agent
+from langchain_classic import hub
 
 #checking API
 
@@ -19,8 +21,9 @@ else:
    st.error("please add an API key first.")
    st.stop()
 
-
-
+st.sidebar.markdown("---")
+st.sidebar.caption("Omer's AI Agent v1.1")
+st.sidebar.caption("Powered by Groq & LangChain")
 # --- Page Config ---
 st.set_page_config(page_title="Omer's AI Agent", page_icon="🤖")
 st.title("Private AI")
@@ -46,14 +49,13 @@ embeddings = OllamaEmbeddings(model=EMBED_MODEL)
 
 
 
-
 #initializing Memory
 
 if "memory" not in st.session_state:
    st.session_state.memory = ConversationBufferWindowMemory(
      # llm=st.session_state.llm,
       memory_key = "chat_history",
-      output_key= "answer",
+      output_key= "output",
       return_messages = True,
       k=10
 
@@ -88,7 +90,7 @@ if "vectorstore" not in st.session_state:
 
       )
    else:
-      st.session_state.vectorestore = None
+      st.session_state.vectorstore = None
 
 
 
@@ -132,24 +134,30 @@ for message in st.session_state.chat_history:
 #chain
 
 custom_template = """You are a helpful AI. Use the context to answer the question.
-If the answer isn't in the context, say you don't know.
+If the answer isn't in the context, say you don't know. If question about who is 
+created you (Ai agent) say i was created by Omer farooque Python developer, I am 
+powered by Groq's LPU technology and local RAG architecture.
+by ollama
 Context: {context}
 Question: {question}
 Answer:"""
+
+
 
 
 #QA_PROMPT = ChatPromptTemplate(template = custom_template, input_variables =["context", "question"])
 
 QA_PROMPT = ChatPromptTemplate.from_template(custom_template)
 
+
 if st.session_state.vectorstore is not None:
  qa_chain = ConversationalRetrievalChain.from_llm(
    llm = st.session_state.llm,
    retriever = st.session_state.vectorstore.as_retriever(
       search_type = "similarity",
-      search_kwargs = {"k": 3}
+      search_kwargs = {"k": 10}
    ),
-   memory = st.session_state.memory,
+ #  memory = st.session_state.memory,
    combine_docs_chain_kwargs = {"prompt" : QA_PROMPT},
    rephrase_question = True,
    return_source_documents = True
@@ -158,7 +166,38 @@ else:
    qa_chain =None
    
 
+#Tools
 
+search = DuckDuckGoSearchRun()
+
+tools = [
+   Tool(
+      name ="PDF_Knowledge_Base",
+      func = lambda q: qa_chain.invoke({"question": q})["answer"],
+      description="Use this when answering questions about uploaded document."
+
+   ),
+   Tool(
+      name = "Web_Search",
+      func= search.run,
+      description="Use this tool when answering questions about current affair or answer that are not found in the uplaoded document"
+   )
+]
+
+
+
+prompt_template = hub.pull("hwchase17/react")
+
+agent = create_react_agent(st.session_state.llm, tools, prompt_template)
+
+agent_executor = AgentExecutor(
+   agent = agent,
+   tools = tools,
+   verbose = True,
+   memory = st.session_state.memory,
+   handle_parsing_errors =True
+
+)
 # promt loop
 
 if prompt := st.chat_input("Ask a question about your document..."):    
@@ -168,20 +207,15 @@ if prompt := st.chat_input("Ask a question about your document..."):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-      if qa_chain is None:
+      if st.session_state.vectorstore is None:
          st.error("please upload a pdf first.")    
       else:
          with st.spinner("Thinking..."):
-            response = qa_chain.invoke({"question": prompt})
+            response = agent_executor.invoke({"input": prompt})
 
           
-         answer = response["answer"]
-         source_docs = response["source_documents"]
-         
-         st.sidebar.write(f"Retrieved {len(source_docs)} chunks.")
-         if source_docs:
-            st.sidebar.info(source_docs[0].page_content[:300])
-         
+         answer = response["output"]
+        
          st.markdown(answer)
          st.session_state.chat_history.append({"role": "assistant", "content": answer})   
 
