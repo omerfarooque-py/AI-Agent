@@ -7,7 +7,6 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_classic.chains import ConversationalRetrievalChain
-from langchain_classic.memory import ConversationBufferWindowMemory
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_classic.agents import Tool, AgentExecutor, create_react_agent
@@ -105,21 +104,6 @@ if "llm" not in st.session_state:
     )
 
 embeddings = OllamaEmbeddings(model=EMBED_MODEL)
-
-
-
-#initializing Memory
-
-if "memory" not in st.session_state:
-   st.session_state.memory = ConversationBufferWindowMemory(
-     # llm=st.session_state.llm,
-      memory_key = "chat_history",
-      output_key= "output",
-      return_messages = True,
-      k=10
-
-   )
-
 
 
 
@@ -228,7 +212,6 @@ if st.sidebar.button("update Knowledge Base"):
 
 if st.sidebar.button("🗑️ Clear Chat History"):
      st.session_state.chat_history = []
-     st.session_state.memory.clear()
      st.rerun()             
 
 st.success(f"Active Model: {st.session_state.current_model_id}")
@@ -274,7 +257,6 @@ def build_qa_chain():
       search_type = "similarity",
       search_kwargs = {"k": 4}
    ),
-   memory = st.session_state.memory,
    combine_docs_chain_kwargs = {"prompt" : QA_PROMPT},
    return_source_documents = True
   )
@@ -291,7 +273,7 @@ def pdf_search_wrapper(query):
    if qa_chain is None: 
       return "No PDF knowledge base available. Try Web Search instead."
    final_result = None 
-   for chunk in qa_chain.stream({"question": query, "chat_history": []}): 
+   for chunk in qa_chain.invoke({"question": query, "chat_history": []}): 
       if "answer" in chunk: 
          final_result = chunk
    if not final_result:
@@ -372,7 +354,8 @@ def web_search_wrapper(query):
 
     if unique_urls:    # ensure we clear any previous web sources when no urls found
       try:
-        st.session_state.last_web_sources = []
+        st.session_state.last_web_sources = unique_urls
+        st.session_state.last_pdf_sources = []  # clear PDF sources when web sources are found
       except Exception:
                pass
       return f"FOUND ON WEB:\n{text}\n\nSources:\n" + "\n".join(unique_urls)
@@ -451,7 +434,7 @@ if prompt := st.chat_input("Ask a question about your document..."):
                          response_placeholder.markdown(current_step + "⏳ Processing...")
                  
                  # Show intermediate results
-                 if "steps" in step:
+                 elif "steps" in step:
                      steps = step["steps"]
                      if steps:
                          step_obj = steps[0]
@@ -459,8 +442,8 @@ if prompt := st.chat_input("Ask a question about your document..."):
                          response_placeholder.markdown(current_step + "⏳ Generating answer...")
                  
                  # Show final output
-                 if "output" in step:
-                     full_response = step["output"]
+                 elif "output" in step:
+                     full_response = step.get("output", "") or "no response generated."
                      # Clean up step display, show final answer
                      response_placeholder.markdown(full_response)
              
@@ -479,12 +462,6 @@ if prompt := st.chat_input("Ask a question about your document..."):
          answer = full_response
          st.session_state.chat_history.append({"role": "assistant", "content": answer})
 
-         # Refresh the app so the top-level chat history display shows the new messages
-         try:
-             st.experimental_rerun()
-         except Exception:
-             # If rerun isn't available in this context, continue without crashing
-             pass
 
          # Show duration, model and last web sources (if any)
          sources_display = ""
@@ -532,4 +509,5 @@ if prompt := st.chat_input("Ask a question about your document..."):
                         st.markdown("**Web Sources:**")
                         for src in st.session_state.last_web_sources:
                             st.markdown(f"- {src}")
+         st.caption(f"⏱️ {duration}s | 🧠{st.session_state.current_model_id}")
                            
