@@ -357,6 +357,7 @@ def web_search_wrapper(query):
     # Simple URL extraction
     import re
     urls = re.findall(r"https?://\S+", text)
+    st.session_state.last_web_sources = list(set(urls))  # store unique URLs in session state
     unique_urls = []
     for u in urls:
         if u not in unique_urls:
@@ -369,14 +370,15 @@ def web_search_wrapper(query):
         # session_state may not be available in some contexts
         pass
 
-    if unique_urls:
-        return f"FOUND ON WEB:\n{text}\n\nSources:\n" + "\n".join(unique_urls)
-    # ensure we clear any previous web sources when no urls found
-    try:
+    if unique_urls:    # ensure we clear any previous web sources when no urls found
+      try:
         st.session_state.last_web_sources = []
-    except Exception:
-        pass
-    return f"FOUND ON WEB:\n{text}"
+      except Exception:
+               pass
+      return f"FOUND ON WEB:\n{text}\n\nSources:\n" + "\n".join(unique_urls)
+
+    return text.strip()
+
 
 tools = [
    Tool(
@@ -520,5 +522,14 @@ if prompt := st.chat_input("Ask a question about your document..."):
          except Exception:
              sources_display = ""
 
-         st.caption(f"⏱️ {duration}s | 🧠 {st.session_state.current_model_id}" + sources_display)
-
+         if st.session_state.last_pdf_sources or st.session_state.last_web_sources:
+                with st.expander("📚 View Current Sources"):
+                    if st.session_state.last_pdf_sources:
+                        st.markdown("**PDF Sources:**")
+                        for src in st.session_state.last_pdf_sources:
+                            st.markdown(f"- {src}")
+                    if st.session_state.last_web_sources:
+                        st.markdown("**Web Sources:**")
+                        for src in st.session_state.last_web_sources:
+                            st.markdown(f"- {src}")
+                           
