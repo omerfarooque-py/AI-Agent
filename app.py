@@ -22,7 +22,7 @@ else:
    st.stop()
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Omer's AI Agent v1.1")
+st.sidebar.caption("Omer's AI Agent v2.1")
 st.sidebar.caption("Powered by Groq & LangChain")
 # --- Page Config ---
 st.set_page_config(page_title="Omer's AI Agent", page_icon="🤖")
@@ -169,6 +169,11 @@ if "vectorstore" not in st.session_state:
 
 
 # --- Initialization ---
+
+if "agent_executor" in st.session_state and "last_fix_applied" not in st.session_state:
+    del st.session_state["agent_executor"]
+    st.session_state.last_fix_applied = True
+
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
@@ -266,61 +271,37 @@ def build_qa_chain():
 
 #source function.
 def pdf_search_wrapper(query): 
-   # Cache QA chain in session state to avoid rebuilding on every call
-   if "qa_chain" not in st.session_state or st.session_state.qa_chain is None:
-      st.session_state.qa_chain = build_qa_chain()
-   
-   qa_chain = st.session_state.qa_chain
-   if qa_chain is None: 
-      return "No PDF knowledge base available. Try Web Search instead."
-   final_result = None 
-   for chunk in qa_chain.invoke({"question": query, "chat_history": []}): 
-      if "answer" in chunk: 
-         final_result = chunk
-   if not final_result:
-      return "No answer found in PDFs. Please try Web Search for current information."
-   answer = final_result.get("answer", "")
-   if "Final Answer:" in answer:
-     answer = answer.split("Final Answer:")[-1].strip()
-   elif "Thought:" in answer:
-     answer = answer.split("Thought:")[0].strip()
+    if "qa_chain" not in st.session_state or st.session_state.qa_chain is None:
+        st.session_state.qa_chain = build_qa_chain()
+    
+    qa_chain = st.session_state.qa_chain
+    if qa_chain is None: 
+        return "No PDF knowledge base available. Try Web Search instead."
 
-   if not answer or answer.lower() in ["i don't know", "unknown", "no answer", ""]:
-      return "PDF search did not find an answer. Try Web Search for this question."
+    # FIX: No more loop! Just get the result dictionary directly.
+    result = qa_chain.invoke({"question": query, "chat_history": []})
+    
+    answer = result.get("answer", "")
+    
+    # Cleaning the response
+    if "Final Answer:" in answer:
+        answer = answer.split("Final Answer:")[-1].strip()
+    elif "Thought:" in answer:
+        answer = answer.split("Thought:")[0].strip()
 
-   sources = []
-   for doc in final_result.get("source_documents", []):
-      # resolve source name: prefer original_source, fallback to source
-      raw_src = doc.metadata.get("original_source") or doc.metadata.get("source", "Unknown PDF")
-      src_basename = os.path.basename(raw_src)
-      # if the basename looks like a temporary filename, try to guess a real name
-      import re
-      if re.match(r"^tmp", src_basename) or re.match(r"^temp", src_basename):
-          # if there's exactly one uploaded doc, assume it's that
-          uploaded = list(st.session_state.get("uploaded_docs", [])) if "uploaded_docs" in st.session_state else []
-          if len(uploaded) == 1:
-              source_name = uploaded[0]
-          elif len(uploaded) > 1:
-              # multiple uploaded docs: try to find one that shares page counts? fallback to first two names
-              source_name = uploaded[0]
-          else:
-              source_name = src_basename
-      else:
-          source_name = src_basename
-      page_num = doc.metadata.get("page", 0) + 1
-      sources.append(f"📄 {source_name} (Page {page_num})")
+    if not answer or answer.lower() in ["i don't know", "unknown", ""]:
+        return "PDF search did not find an answer. Try Web Search."
 
-   unique_sources = list(set(sources))
-   
-   if unique_sources:
-         # Only store pdf sources if returning a successful answer
-         try:
-            st.session_state.last_pdf_sources = unique_sources
-         except Exception:
-                   pass
-         return f"FOUND IN PDF:\n{answer}\n\nSources:\n" + "\n".join(unique_sources)
-  
-   return answer
+    # Metadata processing
+    sources = []
+    for doc in result.get("source_documents", []):
+        raw_src = doc.metadata.get("original_source") or doc.metadata.get("source", "Unknown PDF")
+        source_name = os.path.basename(raw_src)
+        page_num = doc.metadata.get("page", 0) + 1
+        sources.append(f"📄 {source_name} (Page {page_num})")
+
+    st.session_state.last_pdf_sources = list(set(sources))
+    return answer.strip()
 #Tools
 
 search = DuckDuckGoSearchRun()
@@ -359,9 +340,7 @@ def web_search_wrapper(query):
         st.session_state.last_pdf_sources = []  # clear PDF sources when web sources are found
       except Exception:
                pass
-      return f"FOUND ON WEB:\n{text}\n\nSources:\n" + "\n".join(unique_urls)
-
-    return text.strip()
+      return text.strip()
 
 
 tools = [
@@ -427,6 +406,8 @@ if prompt := st.chat_input("Ask a question about your document..."):
              current_step = ""
              for step in st.session_state.agent_executor.stream({"input": prompt}):
                  # Show agent's reasoning steps
+                 #case 1: A dict
+                if isinstance(step, dict): 
                  if "actions" in step:
                      actions = step["actions"]
                      if actions:
@@ -443,15 +424,25 @@ if prompt := st.chat_input("Ask a question about your document..."):
                          response_placeholder.markdown(current_step + "⏳ Generating answer...")
                  
                  # Show final output
+                 #if it's a dictionay, we use .get()
+                 #TODO
                  elif "output" in step:
                      full_response = step.get("output", "") or "no response generated."
                      # Clean up step display, show final answer
                      response_placeholder.markdown(full_response)
+
+                #case 2: STR
+                elif isinstance(step, str):
+                     full_response = step
+                     response_placeholder.markdown(full_response)    
              
              # Fallback if stream produced no output
              if not full_response:
                  result = st.session_state.agent_executor.invoke({"input": prompt})
-                 full_response = result.get("output", "No response generated.")
+                 if isinstance(result, dict):
+                   full_response = result.get("output", "No response generated.")
+                 else:
+                     full_response = str(result)  
                  response_placeholder.markdown(full_response)
          except Exception as e:
              full_response = f"Error: {str(e)}"
@@ -460,8 +451,8 @@ if prompt := st.chat_input("Ask a question about your document..."):
          end_time = time.time()
          duration = round(end_time - start_time, 2)
 
-         answer = full_response
-         st.session_state.chat_history.append({"role": "assistant", "content": answer})
+         answers = full_response
+         st.session_state.chat_history.append({"role": "assistant", "content": answers})
 
 
          # Show duration, model and last web sources (if any)
