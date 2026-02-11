@@ -212,6 +212,7 @@ if st.sidebar.button("update Knowledge Base"):
 
 if st.sidebar.button("🗑️ Clear Chat History"):
      st.session_state.chat_history = []
+     st.success("Chat history cleared.")
      st.rerun()             
 
 st.success(f"Active Model: {st.session_state.current_model_id}")
