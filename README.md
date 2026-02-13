@@ -38,5 +38,28 @@ Acceleration: Groq API for fast inference
 
 🔹 Demo:
 
+WEB SEARCHES:
+
+https://github.com/user-attachments/assets/d1c185ee-45d6-470d-b167-84cd540b072d
+
+
+DISPLAY SOURCES:
+
+https://github.com/user-attachments/assets/40eb7aab-eb3c-4c90-a50d-dbd2ac3b9788
+
+LIVE UI FEEDBACK & INSIGHTS:
+
+https://github.com/user-attachments/assets/258a63bc-140e-46ab-9d84-7995f041db0c
+
+
+UPLOAD FILES:
+
+https://github.com/user-attachments/assets/398efd38-34bf-402e-ad13-326f5cda7bcb
+
+
+
+https://github.com/user-attachments/assets/dcdc89df-a1bd-46ae-9215-022fd6de8344
+
+
 
 
