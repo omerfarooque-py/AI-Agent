@@ -1,2 +1,4 @@
+.venv/
 .streamlit/
-.venv.venv/
+__pycache__/
+.env
